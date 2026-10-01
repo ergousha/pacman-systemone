@@ -1,0 +1,13 @@
+{
+  "name": "pacman-systemone",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Pac-Man played by a local Ollama decision model via the System One API",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test test/",
+    "sim": "node scripts/simulate.js"
+  },
+  "engines": { "node": ">=18" }
+}

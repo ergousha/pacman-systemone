@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Pac-Man × Ollama System One</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main>
+    <header class="toolbar">
+      <label>Player
+        <select id="agent">
+          <option value="ollama">Ollama System One</option>
+          <option value="heuristic">Heuristic (no LLM)</option>
+          <option value="keyboard">Keyboard (you)</option>
+        </select>
+      </label>
+      <label>Model <select id="model"></select></label>
+      <label>Speed
+        <select id="speed">
+          <option value="220">Slow</option>
+          <option value="140" selected>Normal</option>
+          <option value="70">Fast</option>
+        </select>
+      </label>
+      <label class="check"><input type="checkbox" id="board" /> Send ASCII board</label>
+      <span class="spacer"></span>
+      <button id="start" class="primary">Start</button>
+      <button id="reset">New game</button>
+      <button id="replay" disabled>Replay</button>
+      <button id="download" disabled title="Download replay">⤓</button>
+      <label class="file-btn" title="Load replay">⤒<input type="file" id="upload" accept="application/json" hidden /></label>
+    </header>
+
+    <section class="card">
+      <div class="board">
+        <canvas id="canvas"></canvas>
+        <div id="banner" class="banner" hidden></div>
+      </div>
+      <div class="panel">
+        <div class="move-count" id="moveCount">Press Start</div>
+        <pre id="json" class="json"></pre>
+        <div class="meta" id="meta"></div>
+        <details id="requestBox">
+          <summary>What the model saw</summary>
+          <pre id="request" class="json small"></pre>
+        </details>
+      </div>
+    </section>
+
+    <div class="hud">
+      <span>Score <b id="score">0</b></span>
+      <span>Lives <b id="lives"></b></span>
+      <span>Dots <b id="dots"></b></span>
+      <span>Tick <b id="tick">0</b></span>
+    </div>
+    <p class="caption" id="caption"></p>
+  </main>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
