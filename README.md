@@ -41,8 +41,8 @@ Controls:
       "type": "choice",
       "instructions": "You are playing Pac-Man. Choose the direction ...",
       "criteria": {
-        "up":   "Move up. Next tile: dot. Nearest dot 1 steps; 6 dots within 8 steps. No dangerous ghost down this route.",
-        "down": "Move down. Next tile: empty. ... DANGER: a ghost can reach that tile in 1 step(s)."
+        "up":   "SAFE. Move up. Plenty of room ahead of the ghosts. Nearest dot 1 step(s) (closest of all options). 12 dots within 8 steps (most of all options).",
+        "down": "TRAPPED. Move down. Ghosts can cut this route off: only 3 tiles reachable ahead of them. Nearest dot 2 step(s). 2 dots within 8 steps. Reverses direction."
       }
     }
   }
@@ -50,10 +50,23 @@ Controls:
 // → { "answers": { "move": { "type": "choice", "choice": "up", "probabilities": { "up": 0.94, "down": 0.06 }, "confidence": 0.67 } } }
 ```
 
-Only legal directions are offered. Each option's description is computed
-with a BFS down that route (nearest dot, dot density, ghosts ahead, how soon a
-ghost can reach the next tile). This gives the classifier concrete facts to
-weigh instead of making it read the maze spatially.
+Only legal directions are offered. The model isn't trained on Pac-Man, so
+the game does the spatial reasoning and the model weighs the conclusions. Each
+option's description starts with a verdict:
+
+- **SAFE**: plenty of tiles Pac-Man can reach before any ghost can.
+- **RISKY**: a ghost is near the next tile, but there is room to escape.
+- **TRAPPED**: fewer than 8 tiles reachable ahead of the ghosts; they can cut the route off.
+- **DEADLY**: a ghost reaches the next tile first.
+
+Then it lists the nearest dot and dot count along that route. Labels such as
+"closest of all options" are only given among the options with the best
+verdict, so the model doesn't have to compare numbers across options. The
+instructions refer to the same verdict words.
+
+Safety is decided by the code, not the model: TRAPPED and DEADLY options are
+left out whenever a SAFE or RISKY one exists. If only one move is left, Pac-Man
+takes it without asking the model (System One needs at least two options).
 
 The model is only asked at decision points: junctions, corners, the first
 move, or when a ghost is within 4 tiles. In straight corridors Pac-Man keeps
@@ -80,5 +93,5 @@ node scripts/simulate.js --agent heuristic --games 10
 node scripts/simulate.js --agent ollama --model nimble --games 3 [--board on]
 ```
 
-On an M-series Mac, Nimble clears ~80–90% of the maze before losing its three
-lives, at ~500 ms per decision (warm).
+On an M-series Mac, over seeds 1–10, Nimble wins 9 of 10 games (99.8% of dots
+eaten on average), at ~500 ms per model call (warm).

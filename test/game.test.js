@@ -69,3 +69,13 @@ test('parseMove falls back to the most probable legal move', () => {
   assert.equal(parseMove(r, ['up', 'left']), 'up');
   assert.equal(parseMove({}, ['up']), null);
 });
+
+test('deadly moves are not offered when a safer one exists', () => {
+  const g = new Game();
+  Object.assign(g.ghosts[0], { r: 15, c: 7 }); // Blinky, one tile past Pac-Man's left neighbour
+  const { body, forced } = buildRequest(g, 'nimble');
+  const { criteria } = body.questions.move;
+  assert.deepEqual(Object.keys(criteria), ['right']);
+  assert.equal(forced, 'right');
+  assert.match(criteria.right, /^RISKY\./); // the ghost is 3 tiles from there, but behind Pac-Man
+});

@@ -90,11 +90,15 @@ function setButtons() {
 
 async function decide() {
   const includeBoard = els.board.checked;
-  const { body, analysis } = buildRequest(game, els.model.value, { includeBoard });
+  const { body, analysis, forced } = buildRequest(game, els.model.value, { includeBoard });
   const legal = game.legalMoves();
   if (els.agent.value === 'heuristic') {
     const response = heuristicDecision(analysis);
     return { dir: parseMove(response, legal), response, request: body, source: 'heuristic' };
+  }
+  if (forced) {
+    const response = { answers: { move: { type: 'choice', choice: forced, probabilities: { [forced]: 1 }, confidence: 1 } } };
+    return { dir: forced, response, request: body, source: 'only safe move' };
   }
   const t0 = performance.now();
   const res = await fetch('/api/systemone', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });

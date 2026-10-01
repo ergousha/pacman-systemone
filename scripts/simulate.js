@@ -14,8 +14,9 @@ const includeBoard = args.board === 'on';
 const host = process.env.OLLAMA_HOST ?? 'http://localhost:11434';
 
 async function decide(game) {
-  const { body, analysis } = buildRequest(game, model, { includeBoard });
+  const { body, analysis, forced } = buildRequest(game, model, { includeBoard });
   if (agent === 'heuristic') return parseMove(heuristicDecision(analysis), game.legalMoves());
+  if (forced) return forced;
   const res = await fetch(`${host}/v1/systemone`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
   const json = await res.json();
   if (!res.ok) throw new Error(json.error ?? res.statusText);
