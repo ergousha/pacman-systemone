@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Game } from '../public/js/game.js';
 import { LAYOUT, COLS } from '../public/js/maze.js';
-import { analyzeMoves, buildRequest, heuristicDecision, parseMove } from '../public/js/agent.js';
+import { analyzeMoves, buildRequest, heuristicDecision, parseMove, ruleDecision } from '../public/js/agent.js';
 
 test('layout is rectangular', () => {
   for (const row of LAYOUT) assert.equal(row.length, COLS, row);
@@ -78,4 +78,27 @@ test('deadly moves are not offered when a safer one exists', () => {
   assert.deepEqual(Object.keys(criteria), ['right']);
   assert.equal(forced, 'right');
   assert.match(criteria.right, /^RISKY\./); // the ghost is 3 tiles from there, but behind Pac-Man
+});
+
+test('rule agent avoids the deadly move', () => {
+  const g = new Game();
+  Object.assign(g.ghosts[0], { r: 15, c: 7 });
+  assert.equal(ruleDecision(analyzeMoves(g), g.powerTicks).answers.move.choice, 'right');
+});
+
+test('facts level offers every legal move without verdicts', () => {
+  const g = new Game();
+  Object.assign(g.ghosts[0], { r: 15, c: 7 });
+  const { body, forced } = buildRequest(g, 'nimble', { level: 'facts', includeBoard: false });
+  const { criteria } = body.questions.move;
+  assert.equal(forced, null);
+  assert.deepEqual(Object.keys(criteria).sort(), g.legalMoves().sort());
+  for (const text of Object.values(criteria)) assert.doesNotMatch(text, /SAFE|RISKY|TRAPPED|DEADLY|of all options/);
+});
+
+test('raw level sends bare directions and always the board', () => {
+  const g = new Game();
+  const { body } = buildRequest(g, 'nimble', { level: 'raw', includeBoard: false });
+  for (const [dir, text] of Object.entries(body.questions.move.criteria)) assert.equal(text, `Move ${dir}.`);
+  assert.equal(body.state.board.length, LAYOUT.length);
 });

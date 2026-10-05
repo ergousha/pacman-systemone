@@ -78,10 +78,11 @@ going. The game is turn-based, so the world waits while the model thinks.
 server.js            static server + /api/systemone proxy + /api/status
 public/js/maze.js    layout and ghost config
 public/js/game.js    deterministic engine (seeded; same seed + moves ⇒ same game)
-public/js/agent.js   request builder, response parser, heuristic baseline
+public/js/agent.js   request builder (full/facts/raw levels), response parser, heuristic and rule baselines
 public/js/render.js  canvas drawing
 public/js/main.js    UI, game loop, replay
 scripts/simulate.js  headless games
+scripts/benchmark.js model vs. rule baseline across information levels
 test/                node:test suite
 ```
 
@@ -90,8 +91,53 @@ test/                node:test suite
 ```sh
 npm test
 node scripts/simulate.js --agent heuristic --games 10
-node scripts/simulate.js --agent ollama --model nimble --games 3 [--board on]
+node scripts/simulate.js --agent rule --games 10
+node scripts/simulate.js --agent ollama --model nimble --games 3 [--board on] [--level full|facts|raw]
+npm run bench -- --samples 150 --games 5 [--json out.json]
 ```
 
 On an M-series Mac, over seeds 1–10, Nimble wins 9 of 10 games (99.8% of dots
 eaten on average), at ~500 ms per model call (warm).
+
+## What does the model add?
+
+`scripts/benchmark.js` compares the model with `rule`, a no-LLM agent that
+applies the model's own instructions literally as a sort: safest verdict, then
+closest edible ghost, closest dot, most dots, not reversing. It tests three
+information levels (`--level` in `simulate.js`):
+
+- **full**: the default request, with verdicts and cross-option labels. Unsafe options are filtered out by the code.
+- **facts**: the same per-option numbers for every legal move, with no verdicts, labels or filtering.
+- **raw**: bare directions. The model only has the state JSON and the ASCII board.
+
+Nimble, 150 positions taken from 5 rule games, then 5 full games per agent (seeds 1–5):
+
+| level | agrees with rule | less safe than best¹ | TRAPPED/DEADLY when avoidable¹ |
+|---|---|---|---|
+| full | 77.0% | 14.3% | 0.0% (filtered by code) |
+| facts | 68.0% | 20.8% | 11.1% |
+| raw | 54.0% | 25.0% | 13.9% |
+
+¹ Among positions where the options' verdicts differ.
+
+| agent | wins | dots eaten | lives lost | ms/call |
+|---|---|---|---|---|
+| random | 0/5 | 23.2% | 15 | – |
+| heuristic | 4/5 | 98.9% | 8 | – |
+| **rule** | **5/5** | **100.0%** | **7** | – |
+| Nimble (full) | 4/5 | 99.6% | 6 | 512 |
+| Nimble (facts) | 0/5 | 49.3% | 15 | 436 |
+| Nimble (raw) | 0/5 | 13.3% | 15 | 603 |
+
+The model plays well only when the code has already analysed the position and
+labelled each option. At that point a few lines of code play at least as well,
+faster. With the same numbers but no verdicts (facts), it loses every game. With
+only the board (raw), it eats fewer dots than random moves.
+
+What the model does offer is a policy you can change in prose. The steering
+test uses the 150 facts-level positions where the option with the most room
+ahead of the ghosts is not the rule's choice. Adding one sentence to the
+instructions ("ignore dots; choose the option with the most tiles reachable
+before any ghost") moves Nimble from 15.3% to 51.3% most-room picks, with no
+code change. `rule` stays at 0% until someone edits it. Even so, the model
+follows the new instruction only about half the time.

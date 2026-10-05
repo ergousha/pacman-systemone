@@ -18,6 +18,13 @@ const INSTRUCTIONS = [
   '3. Frightened ghosts are harmless and worth points; chasing one is good.',
 ].join('\n');
 
+// For the lower information levels: the goal of the game, but no decision procedure.
+export const PLAIN_INSTRUCTIONS = [
+  'You are playing Pac-Man. Choose the direction Pac-Man should move next.',
+  'Losing a life to a dangerous ghost is the worst outcome. Eat every dot to win.',
+  'Frightened ghosts are harmless and worth points.',
+].join('\n');
+
 // Tiles Pac-Man can reach through `start` strictly before any dangerous ghost,
 // given each tile's ghost arrival time. Pac-Man is on `start` after 1 step.
 function safeRegion(game, start, here, ghostTime) {
@@ -110,14 +117,14 @@ export function analyzeMoves(game) {
   });
 }
 
-function verdict(a) {
+export function verdict(a) {
   if (a.safeTiles === 0) return 'DEADLY';
   if (a.safeTiles < TRAP_TILES) return 'TRAPPED';
   if (a.ghostCanReachNextTileIn !== null && a.ghostCanReachNextTileIn <= 3) return 'RISKY';
   return 'SAFE';
 }
 
-const RANK = { SAFE: 0, RISKY: 1, TRAPPED: 2, DEADLY: 3 };
+export const RANK = { SAFE: 0, RISKY: 1, TRAPPED: 2, DEADLY: 3 };
 
 // Prefer dots Pac-Man can reach ahead of the ghosts; when there are none,
 // fall back to the plain nearest dot so the model still has a direction.
@@ -159,7 +166,25 @@ function describe(a, all, powerTicks) {
   return parts.join(' ');
 }
 
-export function buildRequest(game, model, { includeBoard = true } = {}) {
+// The same numbers as describe(), without verdicts or cross-option comparisons.
+function describeFacts(a) {
+  const parts = [`Move ${a.dir}.`];
+  parts.push(`${a.safeTiles} tiles reachable before any dangerous ghost.`);
+  if (a.ghostCanReachNextTileIn !== null) parts.push(`A dangerous ghost can reach the next tile in ${a.ghostCanReachNextTileIn} step(s).`);
+  if (a.edibleAhead) parts.push(`Frightened ghost ${a.edibleAhead.name} ${a.edibleAhead.steps} steps away.`);
+  if (dotSteps(a) === null) parts.push('No dots this way.');
+  else parts.push(`Nearest dot ${dotSteps(a)} step(s). ${dotCount(a)} dots within 8 steps.`);
+  if (a.reverses) parts.push('Reverses direction.');
+  return parts.join(' ');
+}
+
+// Information levels, from most to least pre-digested:
+//   full:  verdicts, cross-option labels, and unsafe options filtered out by the code
+//   facts: the same per-option numbers, every legal option, no verdicts or labels
+//   raw:   bare directions; the model only has the state (and the board, always sent)
+export const LEVELS = ['full', 'facts', 'raw'];
+
+export function buildRequest(game, model, { includeBoard = true, level = 'full', instructions } = {}) {
   const analysis = analyzeMoves(game);
   const pac = game.pacman;
   const state = {
@@ -172,16 +197,26 @@ export function buildRequest(game, model, { includeBoard = true } = {}) {
     lives: game.lives,
     score: game.score,
   };
-  if (!includeBoard) {
+  if (!includeBoard && level !== 'raw') {
     delete state.board;
     delete state.legend;
   }
-  // Safety is the code's call: drop TRAPPED/DEADLY options whenever a SAFE or
-  // RISKY one exists (and DEADLY whenever a TRAPPED one does). The model then
-  // chooses among what's left.
-  const best = Math.min(...analysis.map((a) => RANK[verdict(a)]));
-  const offered = analysis.filter((a) => RANK[verdict(a)] <= Math.max(best, RANK.RISKY));
-  const criteria = Object.fromEntries(offered.map((a) => [a.dir, describe(a, offered, game.powerTicks)]));
+  let offered = analysis;
+  let criteria;
+  if (level === 'full') {
+    // Safety is the code's call: drop TRAPPED/DEADLY options whenever a SAFE or
+    // RISKY one exists (and DEADLY whenever a TRAPPED one does). The model then
+    // chooses among what's left.
+    const best = Math.min(...analysis.map((a) => RANK[verdict(a)]));
+    offered = analysis.filter((a) => RANK[verdict(a)] <= Math.max(best, RANK.RISKY));
+    criteria = Object.fromEntries(offered.map((a) => [a.dir, describe(a, offered, game.powerTicks)]));
+  } else if (level === 'facts') {
+    criteria = Object.fromEntries(analysis.map((a) => [a.dir, describeFacts(a)]));
+  } else if (level === 'raw') {
+    criteria = Object.fromEntries(analysis.map((a) => [a.dir, `Move ${a.dir}.`]));
+  } else {
+    throw new Error(`unknown level: ${level}`);
+  }
   return {
     analysis,
     // System One needs at least two candidates; with one, there's no choice to ask about.
@@ -189,7 +224,7 @@ export function buildRequest(game, model, { includeBoard = true } = {}) {
     body: {
       model,
       state,
-      questions: { move: { type: 'choice', instructions: INSTRUCTIONS, criteria } },
+      questions: { move: { type: 'choice', instructions: instructions ?? (level === 'full' ? INSTRUCTIONS : PLAIN_INSTRUCTIONS), criteria } },
     },
   };
 }
@@ -222,4 +257,18 @@ export function heuristicDecision(analysis) {
   const probabilities = Object.fromEntries(analysis.map((a, i) => [a.dir, +(exps[i] / total).toFixed(2)]));
   const best = analysis[scores.indexOf(max)].dir;
   return { answers: { move: { type: 'choice', choice: best, probabilities, confidence: probabilities[best] } } };
+}
+
+// No-LLM baseline that applies the model's own instructions literally, as a sort:
+// safest verdict, then closest edible ghost, closest dot, most dots, not reversing.
+export function ruleDecision(analysis, powerTicks = 0) {
+  const edible = (a) => (a.edibleAhead && a.edibleAhead.steps <= powerTicks ? a.edibleAhead.steps : Infinity);
+  const [best] = [...analysis].sort((x, y) =>
+    RANK[verdict(x)] - RANK[verdict(y)]
+    || edible(x) - edible(y)
+    || (dotSteps(x) ?? Infinity) - (dotSteps(y) ?? Infinity)
+    || dotCount(y) - dotCount(x)
+    || x.reverses - y.reverses);
+  const probabilities = Object.fromEntries(analysis.map((a) => [a.dir, a === best ? 1 : 0]));
+  return { answers: { move: { type: 'choice', choice: best.dir, probabilities, confidence: 1 } } };
 }
